@@ -9,8 +9,8 @@ from starrocks_mcp.db.executor import PooledExecutor
 from starrocks_mcp.db.mock_pool import MockConnectionPool
 from starrocks_mcp.schema.catalog import SchemaAccessError, get_database_info
 
-SCOPED_PERM = ApiKeyPermission(key_id="ro", role="read", scope=[ScopeRule(catalog="paimon", database="csc")])
-UNRESTRICTED_PERM = ApiKeyPermission(key_id="rw", role="readwrite", scope=None)
+SCOPED_PERM = ApiKeyPermission(username="alice", key_id="ro", role="read", scope=[ScopeRule(catalog="paimon", database="csc")])
+UNRESTRICTED_PERM = ApiKeyPermission(username="bob", key_id="rw", role="readwrite", scope=None)
 
 
 @pytest.fixture

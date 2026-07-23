@@ -154,6 +154,7 @@ async def handle_execute_sql(
         )
         _schedule_request_log(
             state,
+            username=permission.username,
             api_key_id=permission.key_id,
             statement_type=statement_type,
             sql_text=sql,

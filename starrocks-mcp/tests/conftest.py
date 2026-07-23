@@ -26,13 +26,15 @@ def hash_key(raw: str) -> str:
 def apikeys_file(tmp_path):
     path = tmp_path / "apikeys.yaml"
     data = {
-        "api_keys": {
-            hash_key(READONLY_KEY): {
+        "users": {
+            "alice": {
+                "api_key": hash_key(READONLY_KEY),
                 "id": "bi-team-readonly",
                 "role": "read",
                 "scope": [{"catalog": "paimon", "database": "csc"}],
             },
-            hash_key(READWRITE_KEY): {
+            "bob": {
+                "api_key": hash_key(READWRITE_KEY),
                 "id": "etl-job",
                 "role": "readwrite",
                 "scope": None,

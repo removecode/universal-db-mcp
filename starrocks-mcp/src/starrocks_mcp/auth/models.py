@@ -29,9 +29,14 @@ class ScopeRule:
 
 @dataclass(frozen=True)
 class ApiKeyPermission:
-    """一个 apikey 解析后的权限信息。"""
+    """一个 apikey 解析后的权限信息（同时承载「用户 <-> apikey」映射）。"""
+
+    username: str
+    """业务用户名。审计日志优先记录这个字段。"""
 
     key_id: str
+    """apikey 自身的标识（可与 username 相同，也可单独命名）。"""
+
     role: Role
     scope: list[ScopeRule] | None = None
     rate_limit_per_min: int | None = None

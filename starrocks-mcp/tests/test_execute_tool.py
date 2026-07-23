@@ -10,8 +10,8 @@ from prometheus_client import generate_latest
 from starrocks_mcp.auth.models import ApiKeyPermission, ScopeRule
 from starrocks_mcp.handlers import handle_execute_sql
 
-SCOPED_READ_PERM = ApiKeyPermission(key_id="ro", role="read", scope=[ScopeRule(catalog="paimon", database="csc")])
-UNRESTRICTED_READWRITE_PERM = ApiKeyPermission(key_id="rw", role="readwrite", scope=None)
+SCOPED_READ_PERM = ApiKeyPermission(username="alice", key_id="ro", role="read", scope=[ScopeRule(catalog="paimon", database="csc")])
+UNRESTRICTED_READWRITE_PERM = ApiKeyPermission(username="bob", key_id="rw", role="readwrite", scope=None)
 
 
 async def test_readonly_select_within_scope_succeeds(app_state):
@@ -68,9 +68,10 @@ async def test_successful_execution_records_metrics_and_audit_log(app_state):
     # 审计日志写入被丢进了默认线程池执行，给它一点时间落盘
     await asyncio.sleep(0.2)
 
-    entries = app_state.request_logger.get_recent(api_key_id="rw", limit=5)
+    entries = app_state.request_logger.get_recent(username="bob", limit=5)
     assert len(entries) >= 1
     assert entries[0].status == "success"
+    assert entries[0].username == "bob"
     assert entries[0].statement_type == "SELECT"
 
     metrics_text = generate_latest(app_state.metrics.registry).decode("utf-8")
@@ -83,8 +84,9 @@ async def test_rejected_execution_records_audit_log_with_statement_type(app_stat
         await handle_execute_sql(app_state, UNRESTRICTED_READWRITE_PERM, "DROP TABLE dw.orders")
     await asyncio.sleep(0.2)
 
-    entries = app_state.request_logger.get_recent(api_key_id="rw", limit=5)
+    entries = app_state.request_logger.get_recent(username="bob", limit=5)
     assert entries[0].status == "rejected"
+    assert entries[0].username == "bob"
     # 即使被拒绝，也应该尽量记录识别出的语句类型，而不是笼统的 UNKNOWN
     assert entries[0].statement_type == "DROP"
     assert entries[0].error is not None

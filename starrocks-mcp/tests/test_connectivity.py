@@ -94,7 +94,7 @@ async def test_execute_sql_wraps_connection_failure_as_clear_message(app_state):
     from starrocks_mcp.auth.models import ApiKeyPermission
 
     app_state.read_pool = FailingPool()
-    permission = ApiKeyPermission(key_id="rw", role="readwrite", scope=None)
+    permission = ApiKeyPermission(username="rw", key_id="rw", role="readwrite", scope=None)
 
     with pytest.raises(RuntimeError, match="数据库未连接"):
         await handle_execute_sql(

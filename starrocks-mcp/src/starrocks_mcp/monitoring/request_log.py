@@ -1,6 +1,6 @@
-"""按 apikey 记录每次 execute_sql 调用的审计日志，落地到本地 SQLite。
+"""按用户名记录每次 execute_sql 调用的审计日志，落地到本地 SQLite。
 
-用 SQLite 而不是纯文本日志，是为了能直接用 SQL 查询"某个 apikey 最近的请求记录"，
+用 SQLite 而不是纯文本日志，是为了能直接用 SQL 查询"某个用户最近的请求记录"，
 不需要额外接日志系统就能满足审计需求；后续如果要接入集中式日志/审计系统，
 可以在 `log()` 里追加一次转发，不影响调用方接口。
 """
@@ -18,6 +18,7 @@ from pathlib import Path
 class RequestLogEntry:
     id: int
     ts: str
+    username: str
     api_key_id: str
     statement_type: str | None
     sql_text: str | None
@@ -47,6 +48,7 @@ class RequestLogger:
                 CREATE TABLE IF NOT EXISTS request_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     ts TEXT NOT NULL,
+                    username TEXT NOT NULL,
                     api_key_id TEXT NOT NULL,
                     statement_type TEXT,
                     sql_text TEXT,
@@ -58,6 +60,16 @@ class RequestLogger:
                 )
                 """
             )
+            # 兼容旧库：若早期版本没有 username 列，补上
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(request_log)").fetchall()
+            }
+            if "username" not in columns:
+                conn.execute(
+                    "ALTER TABLE request_log ADD COLUMN username TEXT NOT NULL DEFAULT ''"
+                )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_request_log_username ON request_log(username)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_request_log_apikey ON request_log(api_key_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_request_log_ts ON request_log(ts)")
             conn.commit()
@@ -65,6 +77,7 @@ class RequestLogger:
     def log(
         self,
         *,
+        username: str,
         api_key_id: str,
         statement_type: str | None,
         sql_text: str | None,
@@ -81,16 +94,37 @@ class RequestLogger:
             conn.execute(
                 """
                 INSERT INTO request_log
-                    (ts, api_key_id, statement_type, sql_text, pool, duration_ms, row_count, status, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (ts, username, api_key_id, statement_type, sql_text, pool, duration_ms, row_count, status, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (ts, api_key_id, statement_type, text, pool, duration_ms, row_count, status, error),
+                (
+                    ts,
+                    username,
+                    api_key_id,
+                    statement_type,
+                    text,
+                    pool,
+                    duration_ms,
+                    row_count,
+                    status,
+                    error,
+                ),
             )
             conn.commit()
 
-    def get_recent(self, api_key_id: str | None = None, limit: int = 50) -> list[RequestLogEntry]:
+    def get_recent(
+        self,
+        username: str | None = None,
+        api_key_id: str | None = None,
+        limit: int = 50,
+    ) -> list[RequestLogEntry]:
         with self._lock, self._connect() as conn:
-            if api_key_id:
+            if username:
+                cursor = conn.execute(
+                    "SELECT * FROM request_log WHERE username = ? ORDER BY id DESC LIMIT ?",
+                    (username, limit),
+                )
+            elif api_key_id:
                 cursor = conn.execute(
                     "SELECT * FROM request_log WHERE api_key_id = ? ORDER BY id DESC LIMIT ?",
                     (api_key_id, limit),

@@ -29,34 +29,34 @@ def test_metrics_pool_usage_gauge_tracks_delta():
     assert 'mcp_pool_in_use{pool="read"} 1.0' in text
 
 
-def test_request_logger_persists_and_queries_by_api_key(tmp_path):
+def test_request_logger_persists_and_queries_by_username(tmp_path):
     logger = RequestLogger(tmp_path / "audit.db")
     logger.log(
-        api_key_id="bi-team-readonly", statement_type="SELECT", sql_text="SELECT 1",
-        pool="read", duration_ms=1.23, row_count=1, status="success",
+        username="alice", api_key_id="bi-team-readonly", statement_type="SELECT",
+        sql_text="SELECT 1", pool="read", duration_ms=1.23, row_count=1, status="success",
     )
     logger.log(
-        api_key_id="etl-job", statement_type="UPDATE", sql_text="UPDATE t SET a=1",
-        pool="write", duration_ms=5.0, row_count=0, status="success",
+        username="bob", api_key_id="etl-job", statement_type="UPDATE",
+        sql_text="UPDATE t SET a=1", pool="write", duration_ms=5.0, row_count=0, status="success",
     )
 
-    ro_entries = logger.get_recent(api_key_id="bi-team-readonly")
-    assert len(ro_entries) == 1
-    assert ro_entries[0].statement_type == "SELECT"
+    alice_entries = logger.get_recent(username="alice")
+    assert len(alice_entries) == 1
+    assert alice_entries[0].username == "alice"
+    assert alice_entries[0].statement_type == "SELECT"
 
     all_entries = logger.get_recent()
     assert len(all_entries) == 2
-    # 按 id 倒序返回（最近的在前）
-    assert all_entries[0].api_key_id == "etl-job"
+    assert all_entries[0].username == "bob"
 
 
 def test_request_logger_truncates_long_sql_text(tmp_path):
     logger = RequestLogger(tmp_path / "audit.db")
     long_sql = "SELECT " + "a" * 5000
     logger.log(
-        api_key_id="k", statement_type="SELECT", sql_text=long_sql,
+        username="alice", api_key_id="k", statement_type="SELECT", sql_text=long_sql,
         pool="read", duration_ms=1.0, row_count=0, status="success",
         sql_text_max_length=100,
     )
-    entry = logger.get_recent(api_key_id="k")[0]
+    entry = logger.get_recent(username="alice")[0]
     assert len(entry.sql_text) == 100

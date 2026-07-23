@@ -11,9 +11,9 @@ from starrocks_mcp.security.audit import SqlAuditError, audit_sql, classify_stat
 SETTINGS = SecuritySettings()
 
 READ_PERM = ApiKeyPermission(
-    key_id="ro", role="read", scope=[ScopeRule(catalog="paimon", database="csc")]
+    username="alice", key_id="ro", role="read", scope=[ScopeRule(catalog="paimon", database="csc")]
 )
-READWRITE_PERM_UNRESTRICTED = ApiKeyPermission(key_id="rw", role="readwrite", scope=None)
+READWRITE_PERM_UNRESTRICTED = ApiKeyPermission(username="bob", key_id="rw", role="readwrite", scope=None)
 
 
 @pytest.mark.parametrize(

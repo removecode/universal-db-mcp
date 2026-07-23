@@ -98,22 +98,30 @@ CREATE USER 'writer'@'%' IDENTIFIED BY 'yyy';
 GRANT SELECT, INSERT, UPDATE, DELETE ON *.* TO 'writer'@'%';
 ```
 
-## apikey 权限配置
+## apikey / 用户映射
 
-`config/apikeys.yaml` 是 apikey → 权限 的映射表，key 用 apikey 的 **sha256 哈希**（不落地明文）：
+`config/apikeys.yaml` 同时维护 **用户 ↔ apikey** 映射与权限。客户端只传 apikey；服务端哈希后查出 `username`，审计日志直接记用户名。
+
+推荐写法（以用户为中心）：
 
 ```yaml
-api_keys:
-  "sha256:<hash>":
-    id: bi-team-readonly     # 展示名，会出现在监控指标和审计日志里
-    role: read                # read | readwrite
-    scope:                    # 限制可访问的 catalog/database；null 表示不限制
+users:
+  alice:
+    api_key: "sha256:<hash>"
+    id: bi-team-readonly
+    role: read
+    scope:
       - catalog: paimon
         database: csc
-    rate_limit_per_min: 120   # 预留字段，当前版本未实现限流
+  bob:
+    api_key: "sha256:<hash>"
+    role: readwrite
+    scope: null
 ```
 
-`AuthProvider` 是可插拔接口（`src/starrocks_mcp/auth/provider.py`），v1 只提供 YAML 实现。如果要接入已有的用户/权限系统，实现同样的 `get_permission(raw_api_key) -> ApiKeyPermission | None` 接口即可，不需要改动鉴权中间件和 MCP 工具代码。
+也兼容旧的 `api_keys:` 写法（条目里加 `username` 字段）。完整示例见 `config/apikeys.example.yaml`。
+
+`AuthProvider` 是可插拔接口（`src/starrocks_mcp/auth/provider.py`），v1 只提供 YAML 实现。如果要接入已有的用户/权限系统，实现同样的 `get_permission(raw_api_key) -> ApiKeyPermission | None` 接口即可。
 
 ## 两个 MCP 工具
 
@@ -152,12 +160,12 @@ StarRocks 支持多 catalog（内部 `default_catalog` + 外部 catalog，比如
   - `mcp_sql_duration_seconds{api_key_id,statement_type}`
   - `mcp_sql_rows_returned{api_key_id}`
   - `mcp_pool_in_use{pool}`
-- 按 apikey 的请求记录落地在本地 SQLite（`monitoring.audit_db_path`，默认 `logs/audit.db`），表 `request_log`，可以直接用 SQL 查某个 apikey 最近的调用：
+- 按用户名的请求记录落地在本地 SQLite（`monitoring.audit_db_path`，默认 `logs/audit.db`），表 `request_log`，可以直接用 SQL 查某个用户最近的调用：
 
   ```sql
-  SELECT ts, statement_type, sql_text, duration_ms, row_count, status, error
+  SELECT ts, username, api_key_id, statement_type, sql_text, duration_ms, row_count, status, error
   FROM request_log
-  WHERE api_key_id = 'bi-team-readonly'
+  WHERE username = 'alice'
   ORDER BY id DESC LIMIT 20;
   ```
 

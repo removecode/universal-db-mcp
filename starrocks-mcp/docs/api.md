@@ -29,11 +29,28 @@ Content-Type: application/json
 {"error":"unauthorized","message":"缺少有效的 apikey，请在请求头中提供 X-API-Key"}
 ```
 
-apikey 与权限的映射在服务端 `config/apikeys.yaml` 中配置（文件里存的是 sha256 哈希，不是明文）。每个 apikey 有：
+apikey 与权限的映射在服务端 `config/apikeys.yaml` 中配置（文件里存的是 sha256 哈希，不是明文）。这同时也是 **用户 ↔ apikey** 映射：请求带上 apikey 后，服务端反查出 `username`，审计日志直接记录用户名。
+
+推荐配置（以用户为中心）：
+
+```yaml
+users:
+  alice:
+    api_key: "sha256:..."
+    id: bi-team-readonly   # 可选
+    role: read
+    scope:
+      - catalog: paimon
+        database: csc
+```
+
+每个用户条目包含：
 
 | 字段 | 含义 |
 |------|------|
-| `id` | 展示名，会出现在监控指标和审计日志里 |
+| `username`（users 的 key） | 业务用户名，审计日志记录这个 |
+| `api_key` | apikey 的 sha256 哈希 |
+| `id` | apikey 标识（可选，缺省等于用户名） |
 | `role` | `read`（只能查）或 `readwrite`（可查可写） |
 | `scope` | 可选。限制能访问的 `catalog` / `database`；`null` 表示不限制 |
 
@@ -282,6 +299,29 @@ Prometheus 指标（`Content-Type: text/plain`）。主要指标：
 | `mcp_pool_in_use` | Gauge | `pool`（`read` / `write`） |
 
 其中 `status` 常见取值：`success` / `rejected` / `timeout` / `error` / `disconnected`。
+
+### 3. 审计日志（SQLite）
+
+每次 `execute_sql` 调用会写入本地 SQLite（默认 `logs/audit.db`），**直接记录用户名**（来自用户↔apikey 映射）：
+
+```sql
+SELECT ts, username, api_key_id, statement_type, sql_text, duration_ms, status, error
+FROM request_log
+WHERE username = 'alice'
+ORDER BY id DESC LIMIT 20;
+```
+
+| 字段 | 说明 |
+|------|------|
+| `username` | 业务用户名（审计主字段） |
+| `api_key_id` | apikey 标识（便于关联配置） |
+| `statement_type` | SELECT / INSERT / DROP… |
+| `sql_text` | 请求 SQL（可按配置截断） |
+| `pool` | read / write |
+| `duration_ms` | 耗时 |
+| `row_count` | 返回行数 |
+| `status` | success / rejected / timeout / disconnected / error |
+| `error` | 失败原因 |
 
 ---
 
