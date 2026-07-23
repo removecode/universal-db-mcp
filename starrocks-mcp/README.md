@@ -169,6 +169,10 @@ StarRocks 支持多 catalog（内部 `default_catalog` + 外部 catalog，比如
 
 **后续性能优化方向**：如果实测 QPS 更高、线程调度成为瓶颈，可以把 `src/starrocks_mcp/db/pymysql_pool.py` 换成基于 `asyncmy`（原生异步 MySQL 协议驱动，兼容 StarRocks）的实现——`ConnectionPool` 接口（`src/starrocks_mcp/db/base.py`）保持不变，不需要改动安全审计、MCP 工具、监控等上层代码。
 
+## 设计文档
+
+原始实施计划（规划阶段产出，存档）见 [docs/plan.md](docs/plan.md)。
+
 ## 项目结构
 
 ```
