@@ -1,0 +1,26 @@
+# apikey -> 权限映射配置示例
+#
+# 安全建议：不要把明文 apikey 存在这个文件里。
+# key 的写法是 "sha256:<hex digest>"，即 sha256(明文 apikey) 的十六进制摘要。
+# 生成方式（示例）：
+#   python3 -c "import hashlib,sys; print('sha256:' + hashlib.sha256(sys.argv[1].encode()).hexdigest())" "your-raw-api-key"
+#
+# 服务收到客户端 Header 里的明文 apikey 后，会做同样的哈希再查表，
+# 文件本身不落地任何明文密钥。
+
+api_keys:
+  # 示例：BI 团队只读 key，只能访问 paimon.csc 这一个 catalog.database
+  "sha256:REPLACE_WITH_HASH_OF_READONLY_KEY":
+    id: bi-team-readonly
+    role: read
+    scope:
+      - catalog: paimon
+        database: csc
+    rate_limit_per_min: 120
+
+  # 示例：ETL 任务读写 key，不限制访问范围
+  "sha256:REPLACE_WITH_HASH_OF_READWRITE_KEY":
+    id: etl-job
+    role: readwrite
+    scope: null
+    rate_limit_per_min: 60

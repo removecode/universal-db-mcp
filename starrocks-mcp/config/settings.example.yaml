@@ -1,0 +1,80 @@
+# starrocks-mcp 服务配置示例
+# 复制为 settings.yaml 后按需修改；密码建议使用环境变量占位（${VAR_NAME}），
+# 不要把真实密码提交到版本库。
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  # streamable-http 是当前唯一支持的传输方式（长驻多租户服务）
+  transport: streamable-http
+  # 生产多实例部署（负载均衡后面）建议开启，避免会话状态绑定单进程内存
+  stateless_http: false
+
+database:
+  # mock：不连接真实数据库，返回构造数据，用于本地开发/测试/演示
+  # pymysql：连接真实 StarRocks（兼容 MySQL 协议）
+  driver: mock
+
+  host: 10.58.16.10
+  port: 5744
+  charset: utf8
+
+  # 只读账号：用于 SELECT / SHOW / DESCRIBE / EXPLAIN
+  read_account:
+    user: reader
+    password: ${STARROCKS_READ_PASSWORD}
+
+  # 读写账号：额外允许 INSERT / UPDATE / DELETE
+  write_account:
+    user: writer
+    password: ${STARROCKS_WRITE_PASSWORD}
+
+  pool:
+    read:
+      mincached: 2
+      maxcached: 10
+      maxconnections: 20
+    write:
+      mincached: 1
+      maxcached: 3
+      maxconnections: 5
+
+  # 桥接同步驱动到 asyncio 的线程池大小；建议 >= read.maxconnections + write.maxconnections
+  executor_max_workers: 32
+
+security:
+  # SELECT 未指定 LIMIT 时自动追加的行数上限
+  default_row_limit: 1000
+  # 无论客户端如何指定，单次查询最多返回的行数（用于收紧超大 LIMIT）
+  max_row_limit: 10000
+  # 单条 SQL 执行超时时间（秒）
+  query_timeout_seconds: 30
+  # 无论 apikey 角色如何，一律禁止的语句类型关键字（v1 不支持覆盖/加白名单）
+  blocked_keywords:
+    - DROP
+    - TRUNCATE
+    - ALTER
+    - CREATE
+    - GRANT
+    - REVOKE
+    - LOAD
+    - RENAME
+    - KILL
+    - SET
+  # 当 apikey 配置了 scope 限制、但服务无法从 SQL 中可靠解析出涉及的表时，
+  # 是否拒绝执行（fail-closed，推荐 true）
+  fail_closed_on_unresolvable_scope: true
+
+monitoring:
+  metrics_enabled: true
+  metrics_path: /metrics
+  audit_db_path: logs/audit.db
+  # 审计日志中保存的 SQL 文本最大长度，超出截断
+  sql_text_max_length: 2000
+
+auth:
+  # ApiKeyProvider 实现：目前只有 yaml
+  provider: yaml
+  apikeys_file: config/apikeys.yaml
+  # HTTP Header 名称，同时也兼容 Authorization: Bearer <key>
+  header_name: X-API-Key
