@@ -28,6 +28,10 @@ class ConnectionPool(Protocol):
         """执行一条 SQL 语句并返回结果。调用前应已完成安全审计。"""
         ...
 
+    def ping(self) -> None:
+        """探测连接是否可用。成功则静默返回，失败则抛出异常。"""
+        ...
+
     def close(self) -> None:
         """释放连接池占用的资源（进程退出时调用）。"""
         ...

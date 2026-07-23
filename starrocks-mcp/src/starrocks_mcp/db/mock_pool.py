@@ -117,6 +117,10 @@ class MockConnectionPool(ConnectionPool):
     def __init__(self, role: str = "read"):
         self.role = role
 
+    def ping(self) -> None:
+        # mock 模式没有真实网络连接，探测永远成功
+        return None
+
     def execute(self, sql: str) -> ExecResult:
         stripped = sql.strip().rstrip(";")
         upper = stripped.upper()

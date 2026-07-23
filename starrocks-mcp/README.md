@@ -4,9 +4,11 @@
 
 - 常驻多租户服务，通过 **Streamable HTTP** 暴露给多个 LLM 客户端，每个客户端用 HTTP Header 里的 **apikey** 鉴权。
 - 数据库侧使用**只读 / 读写两个账号**，按 apikey 角色路由到不同连接池，apikey 本身不知道、也拿不到真实的数据库账号密码。
-- 对外暴露两个 MCP 工具：
+- 对外暴露三个 MCP 工具：
+  - `get_connection_status`：检查当前是否已连上数据库；连不上会给出明确提示。
   - `get_database_info_tool`：结构理解，帮助 LLM 知道有哪些 catalog / database / table / column。
   - `execute_sql`：真正执行 SQL，内置安全审计（角色白名单、访问范围校验、LIMIT 保护）。
+- HTTP `GET /healthz` 会同时探测数据库连通性；真实驱动连不上库时返回 503。
 - 内置 Prometheus 监控指标（`/metrics`）和按 apikey 记录的 SQLite 审计日志。
 - 当前环境没有真实 StarRocks 时，可以用内置的 Mock 数据源跑通完整链路（含开发、调试、自动化测试）。
 
@@ -171,7 +173,8 @@ StarRocks 支持多 catalog（内部 `default_catalog` + 外部 catalog，比如
 
 ## 设计文档
 
-原始实施计划（规划阶段产出，存档）见 [docs/plan.md](docs/plan.md)。
+- 接口文档（对外提供的 MCP 工具与 HTTP 端点）：[docs/api.md](docs/api.md)
+- 原始实施计划（规划阶段产出，存档）：[docs/plan.md](docs/plan.md)
 
 ## 项目结构
 

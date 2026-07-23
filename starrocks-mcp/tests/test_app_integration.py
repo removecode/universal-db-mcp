@@ -57,7 +57,11 @@ async def test_health_and_metrics_endpoints_not_gated_by_auth(app_and_state):
         ) as client:
             health = await client.get("/healthz")
             assert health.status_code == 200
-            assert health.json() == {"status": "ok"}
+            body = health.json()
+            assert body["status"] == "ok"
+            assert body["connected"] is True
+            assert body["mode"] == "mock"
+            assert "message" in body
 
             metrics = await client.get("/metrics")
             assert metrics.status_code == 200
@@ -77,7 +81,15 @@ async def test_authenticated_full_round_trip_matches_user_example(app_and_state)
 
                 tools = await session.list_tools()
                 tool_names = {t.name for t in tools.tools}
-                assert tool_names == {"get_database_info_tool", "execute_sql"}
+                assert tool_names == {
+                    "get_connection_status",
+                    "get_database_info_tool",
+                    "execute_sql",
+                }
+
+                status = await session.call_tool("get_connection_status", {})
+                assert not status.isError
+                assert '"connected": true' in status.content[0].text
 
                 info = await session.call_tool("get_database_info_tool", {})
                 assert not info.isError

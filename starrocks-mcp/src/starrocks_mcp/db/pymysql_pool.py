@@ -28,7 +28,9 @@ class PyMySQLConnectionPool(ConnectionPool):
         account: DbAccountSettings,
         charset: str,
         pool_settings: PoolSettings,
+        role: str = "read",
     ) -> None:
+        self.role = role
         self._pool = PooledDB(
             creator=pymysql,
             host=host,
@@ -45,6 +47,16 @@ class PyMySQLConnectionPool(ConnectionPool):
             # 只做存活性检测，不依赖 setsession 在断线重连后重新生效（pymysql 已知限制）
             ping=1,
         )
+
+    def ping(self) -> None:
+        """从连接池取一条连接执行 SELECT 1，验证账号与网络都可用。"""
+        conn = self._pool.connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchall()
+        finally:
+            conn.close()
 
     def execute(self, sql: str) -> ExecResult:
         conn = self._pool.connection()
@@ -73,6 +85,7 @@ class PyMySQLReadWritePools:
             account=settings.read_account,
             charset=settings.charset,
             pool_settings=settings.read_pool,
+            role="read",
         )
         self.write_pool = PyMySQLConnectionPool(
             host=settings.host,
@@ -80,6 +93,7 @@ class PyMySQLReadWritePools:
             account=settings.write_account,
             charset=settings.charset,
             pool_settings=settings.write_pool,
+            role="write",
         )
 
     def close(self) -> None:

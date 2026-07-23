@@ -1,4 +1,4 @@
-"""两个 MCP 工具的业务逻辑实现（脱离 FastMCP/Context，方便单测直接调用）。
+"""MCP 工具的业务逻辑实现（脱离 FastMCP/Context，方便单测直接调用）。
 
 `server.py` 里的 `@mcp.tool()` 只负责：从 Context 里取出 apikey 权限，然后调用这里的
 函数并把结果原样返回。所有安全审计、连接池选择、监控埋点、审计日志的逻辑都在这里。
@@ -11,12 +11,32 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from .auth.models import ApiKeyPermission
+from .db.connectivity import (
+    check_connection_status,
+    format_connection_error,
+    is_connection_error,
+)
 from .db.executor import QueryTimeoutError
 from .schema.catalog import get_database_info
 from .security.audit import SqlAuditError, audit_sql, classify_statement, split_statements
 
 if TYPE_CHECKING:
     from .server import AppState
+
+
+async def handle_get_connection_status(state: "AppState") -> dict[str, Any]:
+    """探测读/写连接池是否可用，返回结构化连通性状态。"""
+    settings = state.settings
+    status = await check_connection_status(
+        read_pool=state.read_pool,
+        write_pool=state.write_pool,
+        executor=state.executor,
+        driver=settings.database.driver,
+        host=None if settings.database.driver == "mock" else settings.database.host,
+        port=None if settings.database.driver == "mock" else settings.database.port,
+        timeout_seconds=min(5.0, settings.security.query_timeout_seconds),
+    )
+    return status.to_dict()
 
 
 async def handle_get_database_info(
@@ -26,15 +46,20 @@ async def handle_get_database_info(
     database: str | None = None,
     table: str | None = None,
 ) -> dict[str, Any]:
-    return await get_database_info(
-        pool=state.read_pool,
-        executor=state.executor,
-        permission=permission,
-        catalog=catalog,
-        database=database,
-        table=table,
-        timeout_seconds=state.settings.security.query_timeout_seconds,
-    )
+    try:
+        return await get_database_info(
+            pool=state.read_pool,
+            executor=state.executor,
+            permission=permission,
+            catalog=catalog,
+            database=database,
+            table=table,
+            timeout_seconds=state.settings.security.query_timeout_seconds,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if is_connection_error(exc):
+            raise RuntimeError(format_connection_error(exc)) from exc
+        raise
 
 
 def _schedule_request_log(state: "AppState", **kwargs: Any) -> None:
@@ -112,6 +137,10 @@ async def handle_execute_sql(
         error_message = str(exc)
         raise
     except Exception as exc:  # noqa: BLE001 - 需要统一记录后再向上抛出
+        if is_connection_error(exc):
+            status = "disconnected"
+            error_message = format_connection_error(exc)
+            raise RuntimeError(error_message) from exc
         error_message = str(exc)
         raise
     finally:
