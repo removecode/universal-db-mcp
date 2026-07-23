@@ -1,0 +1,44 @@
+# 用户 <-> apikey 映射配置示例
+#
+# 安全建议：不要把明文 apikey 存在这个文件里。
+# api_key 的写法是 "sha256:<hex digest>"，即 sha256(明文 apikey) 的十六进制摘要。
+# 生成方式（示例）：
+#   python3 -c "import hashlib,sys; print('sha256:' + hashlib.sha256(sys.argv[1].encode()).hexdigest())" "your-raw-api-key"
+#
+# 服务收到客户端 Header 里的明文 apikey 后，会做同样的哈希再查表，
+# 反查出 username，审计日志直接记录用户名。
+
+# ---------------------------------------------------------------------------
+# 推荐写法：以用户为中心（users）
+# ---------------------------------------------------------------------------
+users:
+  # BI 分析师 alice：只读，只能访问 paimon.csc
+  alice:
+    api_key: "sha256:REPLACE_WITH_HASH_OF_ALICE_KEY"
+    id: bi-team-readonly          # 可选，apikey 标识；缺省等于用户名
+    role: read
+    scope:
+      - catalog: paimon
+        database: csc
+    rate_limit_per_min: 120
+
+  # ETL 任务账号 bob：读写，不限制访问范围
+  bob:
+    api_key: "sha256:REPLACE_WITH_HASH_OF_BOB_KEY"
+    id: etl-job
+    role: readwrite
+    scope: null
+    rate_limit_per_min: 60
+
+# ---------------------------------------------------------------------------
+# 兼容写法：以 apikey 哈希为中心（api_keys）
+# 若与上面 users 出现同一 hash，以这里为准（后加载覆盖）。
+# ---------------------------------------------------------------------------
+# api_keys:
+#   "sha256:REPLACE_WITH_HASH_OF_ALICE_KEY":
+#     username: alice
+#     id: bi-team-readonly
+#     role: read
+#     scope:
+#       - catalog: paimon
+#         database: csc

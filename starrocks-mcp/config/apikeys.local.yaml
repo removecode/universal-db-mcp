@@ -1,0 +1,22 @@
+# 本地开发用「用户 ↔ apikey」映射（仅用于本机联调，勿用于生产）
+#
+# 明文 apikey（请配置到 Cursor MCP headers 里）：
+#   alice -> alice-local-dev-key   （只读，仅 paimon.csc）
+#   bob   -> bob-local-dev-key     （读写，不限范围）
+
+users:
+  alice:
+    api_key: "sha256:5fdb4fd169258f8289d665206bdd330eaef24ff3fe7b2a2901b158e1cfa8f9e3"
+    id: bi-team-readonly
+    role: read
+    scope:
+      - catalog: paimon
+        database: csc
+    rate_limit_per_min: 120
+
+  bob:
+    api_key: "sha256:d6da7675572f30a593181248f82bc0bf9e2874fa373928fb19da2da6cec6ed38"
+    id: etl-job
+    role: readwrite
+    scope: null
+    rate_limit_per_min: 60
