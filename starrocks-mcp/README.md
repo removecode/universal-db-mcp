@@ -181,6 +181,7 @@ StarRocks 支持多 catalog（内部 `default_catalog` + 外部 catalog，比如
 
 ## 设计文档
 
+- 本机启动并在 Cursor 中连接：[docs/local-cursor.md](docs/local-cursor.md)
 - 接口文档（对外提供的 MCP 工具与 HTTP 端点）：[docs/api.md](docs/api.md)
 - 原始实施计划（规划阶段产出，存档）：[docs/plan.md](docs/plan.md)
 

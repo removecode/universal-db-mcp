@@ -1,0 +1,31 @@
+# 本地开发用配置（mock 模式，无需真实 StarRocks）
+# 启动：python3 -m starrocks_mcp.main --config config/settings.local.yaml
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  transport: streamable-http
+  stateless_http: false
+
+database:
+  driver: mock
+  host: 127.0.0.1
+  port: 9030
+  charset: utf8
+
+security:
+  default_row_limit: 1000
+  max_row_limit: 10000
+  query_timeout_seconds: 30
+  fail_closed_on_unresolvable_scope: true
+
+monitoring:
+  metrics_enabled: true
+  metrics_path: /metrics
+  audit_db_path: logs/audit.db
+  sql_text_max_length: 2000
+
+auth:
+  provider: yaml
+  apikeys_file: config/apikeys.local.yaml
+  header_name: X-API-Key
