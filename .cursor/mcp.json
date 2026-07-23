@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "starrocks": {
+      "url": "http://127.0.0.1:8080/mcp",
+      "headers": {
+        "X-API-Key": "alice-local-dev-key"
+      }
+    }
+  }
+}
