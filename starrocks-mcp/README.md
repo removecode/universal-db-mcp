@@ -179,10 +179,28 @@ StarRocks 支持多 catalog（内部 `default_catalog` + 外部 catalog，比如
 
 **后续性能优化方向**：如果实测 QPS 更高、线程调度成为瓶颈，可以把 `src/starrocks_mcp/db/pymysql_pool.py` 换成基于 `asyncmy`（原生异步 MySQL 协议驱动，兼容 StarRocks）的实现——`ConnectionPool` 接口（`src/starrocks_mcp/db/base.py`）保持不变，不需要改动安全审计、MCP 工具、监控等上层代码。
 
+## 离线部署（Linux x86_64）
+
+在可联网机器打包依赖，拷到离线目标机安装：
+
+```bash
+./scripts/build-offline-package.sh
+# 产物: dist/starrocks-mcp-offline-linux-x86_64-<version>.tar.gz
+
+# 目标机:
+tar -xzf starrocks-mcp-offline-linux-x86_64-<version>.tar.gz
+cd starrocks-mcp-offline-linux-x86_64-<version>
+./install.sh
+./run.sh
+```
+
+完整步骤（配置、systemd、排障）见：[docs/offline-deploy.md](docs/offline-deploy.md)。
+
 ## 设计文档
 
 - 本机启动并在 Cursor 中连接：[docs/local-cursor.md](docs/local-cursor.md)
 - 接口文档（对外提供的 MCP 工具与 HTTP 端点）：[docs/api.md](docs/api.md)
+- 离线部署（Linux x86_64）：[docs/offline-deploy.md](docs/offline-deploy.md)
 - 原始实施计划（规划阶段产出，存档）：[docs/plan.md](docs/plan.md)
 
 ## 项目结构

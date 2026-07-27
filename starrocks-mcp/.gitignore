@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+offline/
 config/settings.yaml
 config/apikeys.yaml
 logs/*.db
