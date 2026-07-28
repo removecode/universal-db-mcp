@@ -45,8 +45,17 @@ class AppState:
         driver = settings.database.driver
         if driver == "mock":
             logger.warning("database.driver=mock：当前使用构造数据，不会连接真实 StarRocks")
-            self.read_pool = MockConnectionPool(role="read")
-            self.write_pool = MockConnectionPool(role="write")
+            delay = settings.database.mock_execute_delay_seconds
+            self.read_pool = MockConnectionPool(
+                role="read",
+                max_connections=settings.database.read_pool.maxconnections,
+                execute_delay_seconds=delay,
+            )
+            self.write_pool = MockConnectionPool(
+                role="write",
+                max_connections=settings.database.write_pool.maxconnections,
+                execute_delay_seconds=delay,
+            )
         elif driver == "pymysql":
             self._real_pools = PyMySQLReadWritePools(settings.database)
             self.read_pool = self._real_pools.read_pool

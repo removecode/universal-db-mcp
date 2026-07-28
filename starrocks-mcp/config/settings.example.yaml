@@ -41,6 +41,8 @@ database:
 
   # 桥接同步驱动到 asyncio 的线程池大小；建议 >= read.maxconnections + write.maxconnections
   executor_max_workers: 32
+  # mock 驱动专用：为每条 SQL 注入固定延迟（秒），仅用于测试并发；生产保持 0
+  mock_execute_delay_seconds: 0
 
 security:
   # SELECT 未指定 LIMIT 时自动追加的行数上限

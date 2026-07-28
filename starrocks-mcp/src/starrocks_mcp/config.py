@@ -51,6 +51,8 @@ class DatabaseSettings:
     read_pool: PoolSettings = field(default_factory=PoolSettings)
     write_pool: PoolSettings = field(default_factory=lambda: PoolSettings(mincached=1, maxcached=3, maxconnections=5))
     executor_max_workers: int = 32
+    # mock 驱动专用：为每条 SQL 注入固定延迟，便于测试并发上限（生产保持 0）
+    mock_execute_delay_seconds: float = 0
 
 
 @dataclass
@@ -137,6 +139,7 @@ def load_settings(config_path: str | Path) -> Settings:
             mincached=1, maxcached=3, maxconnections=5
         ),
         executor_max_workers=int(db_raw.get("executor_max_workers", 32)),
+        mock_execute_delay_seconds=float(db_raw.get("mock_execute_delay_seconds", 0)),
     )
 
     security = SecuritySettings(

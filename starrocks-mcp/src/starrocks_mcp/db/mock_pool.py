@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 from datetime import datetime, timezone
 
 from .base import ConnectionPool, ExecResult
@@ -114,14 +116,57 @@ def _find_table_key(text: str) -> tuple[str, str, str] | None:
 class MockConnectionPool(ConnectionPool):
     """按正则匹配常见的 SHOW/DESCRIBE/SELECT/INSERT 等语句，返回构造数据。"""
 
-    def __init__(self, role: str = "read"):
+    def __init__(
+        self,
+        role: str = "read",
+        max_connections: int | None = None,
+        execute_delay_seconds: float = 0,
+    ) -> None:
         self.role = role
+        self._execute_delay_seconds = max(0.0, execute_delay_seconds)
+        self._semaphore = (
+            threading.BoundedSemaphore(max_connections)
+            if max_connections is not None and max_connections > 0
+            else None
+        )
+        self._stats_lock = threading.Lock()
+        self._active_count = 0
+        self._peak_active = 0
+
+    @property
+    def peak_active(self) -> int:
+        """自上次 reset_peak_stats() 以来，execute() 内同时处于活跃状态的最大并发数。"""
+        with self._stats_lock:
+            return self._peak_active
+
+    def reset_peak_stats(self) -> None:
+        with self._stats_lock:
+            self._peak_active = 0
 
     def ping(self) -> None:
         # mock 模式没有真实网络连接，探测永远成功
         return None
 
     def execute(self, sql: str) -> ExecResult:
+        acquired = False
+        if self._semaphore is not None:
+            self._semaphore.acquire()
+            acquired = True
+        try:
+            with self._stats_lock:
+                self._active_count += 1
+                if self._active_count > self._peak_active:
+                    self._peak_active = self._active_count
+            if self._execute_delay_seconds > 0:
+                time.sleep(self._execute_delay_seconds)
+            return self._execute_inner(sql)
+        finally:
+            with self._stats_lock:
+                self._active_count -= 1
+            if acquired:
+                self._semaphore.release()
+
+    def _execute_inner(self, sql: str) -> ExecResult:
         stripped = sql.strip().rstrip(";")
         upper = stripped.upper()
 
