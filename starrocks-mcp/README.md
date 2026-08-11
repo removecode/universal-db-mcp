@@ -181,8 +181,11 @@ StarRocks 支持多 catalog（内部 `default_catalog` + 外部 catalog，比如
 
 ## 设计文档
 
+- **项目说明**（架构、安全设计、模块）：[docs/项目说明.md](docs/项目说明.md)
+- **使用指南**（安装、配置、Cursor 接入、运维）：[docs/使用指南.md](docs/使用指南.md)
 - 本机启动并在 Cursor 中连接：[docs/local-cursor.md](docs/local-cursor.md)
 - 接口文档（对外提供的 MCP 工具与 HTTP 端点）：[docs/api.md](docs/api.md)
+- 内网离线部署：[docs/deploy-intranet.md](docs/deploy-intranet.md)
 - 原始实施计划（规划阶段产出，存档）：[docs/plan.md](docs/plan.md)
 
 ## 项目结构
@@ -218,4 +221,6 @@ pytest -v
 - `test_schema_tool.py`：`get_database_info` 四种参数组合
 - `test_execute_tool.py`：`execute_sql` 端到端行为、监控与审计日志
 - `test_metrics_and_log.py`：Prometheus 指标、SQLite 审计日志模块单测
-- `test_app_integration.py`：完整 ASGI 应用（鉴权中间件 + FastMCP streamable-http）进程内集成测试
+- `test_app_integration.py`：完整 ASGI 应用（鉴权中间件 + FastMCP streamable-http）进程内 E2E 测试，含安全场景
+
+更多说明见 [docs/项目说明.md](docs/项目说明.md) 与 [docs/使用指南.md](docs/使用指南.md)。

@@ -5,7 +5,7 @@
 server:
   host: 0.0.0.0
   port: 8080
-  # streamable-http 是当前唯一支持的传输方式（长驻多租户服务）
+  # 同时支持 streamable-http（/mcp）与 sse（/sse）；客户端按自身能力选择端点即可
   transport: streamable-http
   # 生产多实例部署（负载均衡后面）建议开启，避免会话状态绑定单进程内存
   stateless_http: false

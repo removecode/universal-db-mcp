@@ -153,7 +153,7 @@ def _make_health_endpoint(state: AppState):
 
 
 def build_asgi_app(settings: Settings) -> tuple[ASGIApp, AppState]:
-    """构建最终对外提供服务的 ASGI 应用：/metrics、/healthz 不鉴权，其余（MCP 协议）需要 apikey。"""
+    """构建最终对外提供服务的 ASGI 应用：/metrics、/healthz 不鉴权；MCP 协议同时暴露 /mcp 与 /sse。"""
     state = AppState(settings)
 
     mcp = FastMCP(
@@ -164,9 +164,12 @@ def build_asgi_app(settings: Settings) -> tuple[ASGIApp, AppState]:
     )
     _register_tools(mcp, state)
 
-    mcp_app = mcp.streamable_http_app()
+    # 同时挂载 SSE（/sse + /messages/）与 Streamable HTTP（/mcp），兼容 OpenClaw 等默认走 SSE 的客户端。
+    sse_app = mcp.sse_app()
+    streamable_app = mcp.streamable_http_app()
+    mcp_protocol_app = Starlette(routes=[*sse_app.routes, *streamable_app.routes])
     authenticated_mcp_app = ApiKeyAuthMiddleware(
-        mcp_app,
+        mcp_protocol_app,
         auth_provider=state.auth_provider,
         header_name=settings.auth.header_name,
     )
@@ -176,14 +179,12 @@ def build_asgi_app(settings: Settings) -> tuple[ASGIApp, AppState]:
         routes.append(Route(settings.monitoring.metrics_path, state.metrics.endpoint))
     routes.append(Mount("/", app=authenticated_mcp_app))
 
-    # mcp_app（streamable_http_app() 返回的子应用）自带的 lifespan 负责启动/关闭
-    # StreamableHTTP 的会话管理后台任务；被当作子应用 Mount 进来后不会被外层
-    # Starlette 自动调用，需要手动把它的 lifespan 接进外层应用的 lifespan 里，
-    # 否则请求会因为会话管理器没有运行而失败。
+    # streamable_http_app() 自带的 lifespan 负责启动/关闭 StreamableHTTP 会话管理后台任务；
+    # 被当作子应用 Mount 进来后不会被外层 Starlette 自动调用，需要手动接入外层 lifespan。
     @asynccontextmanager
     async def combined_lifespan(_outer_app: Starlette):
         async with AsyncExitStack() as stack:
-            await stack.enter_async_context(mcp_app.router.lifespan_context(mcp_app))
+            await stack.enter_async_context(streamable_app.router.lifespan_context(streamable_app))
             # 启动时主动探活一次：连不上库不会阻止进程启动（便于排查），但会打明确错误日志
             try:
                 status = await check_connection_status(
