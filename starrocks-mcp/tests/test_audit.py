@@ -115,3 +115,93 @@ def test_unrestricted_key_bypasses_scope_check():
 def test_empty_sql_rejected():
     with pytest.raises(SqlAuditError):
         audit_sql("   ", READWRITE_PERM_UNRESTRICTED, SETTINGS)
+
+
+# ---------------------------------------------------------------------------
+# LIMIT 注入的改写正确性
+#
+# 以下四种写法都曾让 LIMIT 保护失效：前两种拼出语法错误，后两种更危险——
+# 查询实际无上限全表扫，返回给调用方的 limit_applied 却仍是 1000。
+# ---------------------------------------------------------------------------
+
+NO_LIMIT = 1000
+
+
+def test_trailing_semicolon_does_not_produce_broken_sql():
+    result = audit_sql("SELECT str2 FROM paimon.csc.t WHERE day=20260803;", READ_PERM, SETTINGS)
+    assert "; LIMIT" not in result.sql_to_execute
+    assert ";" not in result.sql_to_execute
+    assert result.sql_to_execute.rstrip().endswith(f"LIMIT {NO_LIMIT}")
+
+
+def test_trailing_line_comment_cannot_swallow_injected_limit():
+    result = audit_sql("SELECT str2 FROM paimon.csc.t -- 查一下\n", READ_PERM, SETTINGS)
+    lines = result.sql_to_execute.splitlines()
+    # LIMIT 必须落在注释所在行之后，否则整条被注释掉
+    assert lines[-1].strip() == f"LIMIT {NO_LIMIT}"
+    assert result.limit_applied == NO_LIMIT
+
+
+def test_limit_inside_string_literal_is_not_mistaken_for_user_limit():
+    sql = "SELECT str2 FROM paimon.csc.t WHERE log_content LIKE '%LIMIT 10%'"
+    result = audit_sql(sql, READ_PERM, SETTINGS)
+    assert result.limit_source == "default_injected"
+    assert result.limit_applied == NO_LIMIT
+    assert result.sql_to_execute.rstrip().endswith(f"LIMIT {NO_LIMIT}")
+
+
+def test_unbalanced_paren_inside_string_does_not_double_inject_limit():
+    sql = "SELECT str2 FROM paimon.csc.t WHERE str1 = '(' LIMIT 5"
+    result = audit_sql(sql, READ_PERM, SETTINGS)
+    assert result.limit_source == "user"
+    assert result.limit_applied == 5
+    assert result.sql_to_execute.upper().count("LIMIT") == 1
+
+
+def test_limit_in_subquery_does_not_count_as_top_level():
+    sql = "SELECT a FROM (SELECT a FROM paimon.csc.t LIMIT 3) x"
+    result = audit_sql(sql, READ_PERM, SETTINGS)
+    assert result.limit_source == "default_injected"
+    assert result.sql_to_execute.rstrip().endswith(f"LIMIT {NO_LIMIT}")
+
+
+def test_table_reference_inside_string_literal_is_ignored():
+    # 字符串里的 from 不是真实表引用，不应该因此触发 fail-closed 拒绝
+    sql = "SELECT str2 FROM paimon.csc.t WHERE log_content LIKE '%from other_db.x%' LIMIT 1"
+    result = audit_sql(sql, READ_PERM, SETTINGS)
+    assert result.statement_type == "SELECT"
+
+
+# ---------------------------------------------------------------------------
+# 数据库侧超时 hint
+# ---------------------------------------------------------------------------
+
+
+def test_select_gets_query_timeout_hint_below_wall_clock_budget():
+    result = audit_sql(
+        "SELECT * FROM paimon.csc.t LIMIT 1", READ_PERM, SETTINGS, query_timeout_seconds=60
+    )
+    # 数据库侧要比客户端墙钟先到期，这样连接能被及时归还
+    assert result.query_timeout_hint == 55
+    assert result.sql_to_execute.startswith("SELECT /*+ SET_VAR(query_timeout=55) */")
+
+
+def test_existing_hint_is_not_overwritten():
+    sql = "SELECT /*+ SET_VAR(query_timeout=7) */ * FROM paimon.csc.t LIMIT 1"
+    result = audit_sql(sql, READ_PERM, SETTINGS)
+    assert result.query_timeout_hint is None
+    assert result.sql_to_execute.count("SET_VAR") == 1
+
+
+def test_hint_is_skipped_for_cte_which_cannot_carry_it():
+    sql = "WITH x AS (SELECT a FROM paimon.csc.t) SELECT a FROM x LIMIT 1"
+    result = audit_sql(sql, READWRITE_PERM_UNRESTRICTED, SETTINGS)
+    assert result.query_timeout_hint is None
+    assert "SET_VAR" not in result.sql_to_execute
+
+
+def test_hint_can_be_disabled():
+    no_hint = SecuritySettings(inject_query_timeout_hint=False)
+    result = audit_sql("SELECT * FROM paimon.csc.t LIMIT 1", READ_PERM, no_hint)
+    assert result.query_timeout_hint is None
+    assert "SET_VAR" not in result.sql_to_execute

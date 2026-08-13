@@ -68,6 +68,7 @@ class FakeAppState:
         self.read_pool = MockConnectionPool(role="read")
         self.write_pool = MockConnectionPool(role="write")
         self.executor = PooledExecutor(max_workers=4)
+        self.health_executor = PooledExecutor(max_workers=2, thread_name_prefix="db-health")
         self.metrics = Metrics()
         self.request_logger = RequestLogger(settings.resolve_path(settings.monitoring.audit_db_path))
 
@@ -75,6 +76,7 @@ class FakeAppState:
         return self.read_pool if pool_name == "read" else self.write_pool
 
     def close(self) -> None:
+        self.health_executor.shutdown()
         self.executor.shutdown()
 
 

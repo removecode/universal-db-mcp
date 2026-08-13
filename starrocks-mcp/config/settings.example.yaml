@@ -32,6 +32,8 @@ database:
   pool:
     read:
       mincached: 2
+      # maxcached 不要大于 maxconnections：DBUtils 会反过来把并发上限抬到 maxcached，
+      # 出现"配了 2 实际是 5"。本服务会自动压回来并打 warning，但配对更省事。
       maxcached: 10
       maxconnections: 20
     write:
@@ -41,14 +43,32 @@ database:
 
   # 桥接同步驱动到 asyncio 的线程池大小；建议 >= read.maxconnections + write.maxconnections
   executor_max_workers: 32
+  # 健康检查专用线程池。和业务分开，业务把线程占满时健康检查仍能如实上报
+  health_executor_max_workers: 4
+
+  # 建立 TCP 连接的超时（秒）
+  connect_timeout: 10
+  # socket 读写超时（秒）。这是连接能被归还的最后一道保障：没有它，超时的查询会
+  # 让工作线程永久卡在 cursor.execute 上，那条连接再也回不到池子里。
+  # 留空表示按 security.query_timeout_seconds + socket_timeout_margin_seconds 推导。
+  socket_timeout:
+  socket_timeout_margin_seconds: 30
+  # 取不到空闲连接时的最长等待（秒）。超过就明确报"池满"，而不是无限期挂起——
+  # 连接池自带的排队没有超时，池子一满会让调用方（包括健康检查）永久卡住。
+  pool_acquire_timeout_seconds: 5
 
 security:
   # SELECT 未指定 LIMIT 时自动追加的行数上限
   default_row_limit: 1000
   # 无论客户端如何指定，单次查询最多返回的行数（用于收紧超大 LIMIT）
   max_row_limit: 10000
-  # 单条 SQL 执行超时时间（秒）
+  # 单条 SQL 执行超时时间（秒）。别配得比客户端自己的超时还长：客户端早就断开
+  # 重连了，服务端多出来的那段只是白白占着连接空转。
   query_timeout_seconds: 30
+  # 给 SELECT 注入 /*+ SET_VAR(query_timeout=N) */（N 比上面的预算小几秒）。
+  # 客户端侧的取消动作停不下已经下发的查询，只有让 StarRocks 自己终止，连接才能
+  # 及时归还；调用方也无法自己设置，因为 SET 在 blocked_keywords 里、多语句被拒。
+  inject_query_timeout_hint: true
   # 无论 apikey 角色如何，一律禁止的语句类型关键字（v1 不支持覆盖/加白名单）
   blocked_keywords:
     - DROP

@@ -1,0 +1,63 @@
+# 内网生产部署配置模板
+# 复制为 settings.yaml 后修改；密码务必用环境变量 ${VAR}，不要写明文进仓库。
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  transport: streamable-http
+  stateless_http: false
+
+database:
+  driver: pymysql
+  host: 10.58.16.10
+  port: 5744
+  charset: utf8
+
+  read_account:
+    user: reader
+    password: ${STARROCKS_READ_PASSWORD}
+
+  # 若仅有只读账号，可暂时与 read_account 填相同（建议后续拆分）
+  write_account:
+    user: writer
+    password: ${STARROCKS_WRITE_PASSWORD}
+
+  pool:
+    read:
+      mincached: 2
+      # 不要让 maxcached 大于 maxconnections，否则 DBUtils 会把并发上限抬到 maxcached
+      maxcached: 10
+      maxconnections: 20
+    write:
+      mincached: 1
+      maxcached: 3
+      maxconnections: 5
+
+  executor_max_workers: 32
+  health_executor_max_workers: 4
+
+  connect_timeout: 10
+  # 留空 = security.query_timeout_seconds + socket_timeout_margin_seconds。
+  # 这是超时查询能释放连接的最后保障，不要关掉。
+  socket_timeout:
+  socket_timeout_margin_seconds: 30
+  pool_acquire_timeout_seconds: 5
+
+security:
+  default_row_limit: 1000
+  max_row_limit: 10000
+  # 建议配得比客户端自身的工具调用超时更短，让失败来得快一点
+  query_timeout_seconds: 30
+  inject_query_timeout_hint: true
+  fail_closed_on_unresolvable_scope: true
+
+monitoring:
+  metrics_enabled: true
+  metrics_path: /metrics
+  audit_db_path: logs/audit.db
+  sql_text_max_length: 2000
+
+auth:
+  provider: yaml
+  apikeys_file: config/apikeys.yaml
+  header_name: X-API-Key

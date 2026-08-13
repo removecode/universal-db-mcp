@@ -11,6 +11,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from .auth.models import ApiKeyPermission
+from .db.base import PoolExhaustedError
 from .db.connectivity import (
     check_connection_status,
     format_connection_error,
@@ -30,7 +31,8 @@ async def handle_get_connection_status(state: "AppState") -> dict[str, Any]:
     status = await check_connection_status(
         read_pool=state.read_pool,
         write_pool=state.write_pool,
-        executor=state.executor,
+        # 走独立线程池：业务把共享线程占满时，健康检查还得能说出真话
+        executor=state.health_executor,
         driver=settings.database.driver,
         host=None if settings.database.driver == "mock" else settings.database.host,
         port=None if settings.database.driver == "mock" else settings.database.port,
@@ -88,20 +90,18 @@ async def handle_execute_sql(
     error_message: str | None = None
 
     try:
-        audit_result = audit_sql(sql, permission, settings.security)
-        statement_type = audit_result.statement_type
-        pool_name = audit_result.pool
-
+        # 先定预算，再做审计：注入给 StarRocks 的 query_timeout 要跟本次实际的
+        # 墙钟超时对齐，否则数据库侧会按一个跟调用方无关的值去掐
         effective_timeout = settings.security.query_timeout_seconds
         if timeout_seconds is not None and timeout_seconds > 0:
             effective_timeout = min(timeout_seconds, settings.security.query_timeout_seconds)
 
+        audit_result = audit_sql(sql, permission, settings.security, effective_timeout)
+        statement_type = audit_result.statement_type
+        pool_name = audit_result.pool
+
         pool = state.pool_for(pool_name)
-        state.metrics.track_pool_usage(pool_name, 1)
-        try:
-            result = await state.executor.execute(pool, audit_result.sql_to_execute, effective_timeout)
-        finally:
-            state.metrics.track_pool_usage(pool_name, -1)
+        result = await state.executor.execute(pool, audit_result.sql_to_execute, effective_timeout)
 
         rows = result.rows
         if max_rows is not None and max_rows >= 0:
@@ -120,6 +120,7 @@ async def handle_execute_sql(
             "limit_applied": audit_result.limit_applied,
             "limit_source": audit_result.limit_source,
             "truncated": audit_result.truncated,
+            "query_timeout_hint": audit_result.query_timeout_hint,
             "execution_time_ms": round((time.monotonic() - start) * 1000, 2),
         }
     except SqlAuditError as exc:
@@ -136,6 +137,14 @@ async def handle_execute_sql(
         status = "timeout"
         error_message = str(exc)
         raise
+    except PoolExhaustedError as exc:
+        # 明确区分于“数据库连不上”：库是通的，是当前并发被慢查询占满了
+        status = "pool_exhausted"
+        error_message = str(exc)
+        raise RuntimeError(
+            f"{exc}。数据库本身可达，通常是有慢查询长时间占着连接；"
+            "可查看 /metrics 的 mcp_pool_in_use 或调用 get_connection_status 确认。"
+        ) from exc
     except Exception as exc:  # noqa: BLE001 - 需要统一记录后再向上抛出
         if is_connection_error(exc):
             status = "disconnected"

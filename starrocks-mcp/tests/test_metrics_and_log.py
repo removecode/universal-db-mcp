@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from prometheus_client import generate_latest
 
+from starrocks_mcp.db.base import ConnectionSlots
 from starrocks_mcp.monitoring.metrics import Metrics
 from starrocks_mcp.monitoring.request_log import RequestLogger
 
@@ -20,13 +23,23 @@ def test_metrics_record_execution_increments_counters():
     assert "mcp_sql_rows_returned_bucket" in text
 
 
-def test_metrics_pool_usage_gauge_tracks_delta():
+def test_pool_gauges_read_live_pool_state():
+    """指标必须直接读连接池状态。
+
+    以前是调用前后各 inc(±1)，而减 1 在 finally 里：查询超时时计数跟着减掉，
+    连接却还没归还——池子满了监控反而显示 0，正好在故障时给出相反的结论。
+    """
+    slots = ConnectionSlots(2, role="read")
     metrics = Metrics()
-    metrics.track_pool_usage("read", 1)
-    metrics.track_pool_usage("read", 1)
-    metrics.track_pool_usage("read", -1)
+    metrics.bind_pool("read", SimpleNamespace(stats=slots.stats))
+
+    with slots.hold(0.1):
+        text = generate_latest(metrics.registry).decode("utf-8")
+        assert 'mcp_pool_in_use{pool="read"} 1.0' in text
+        assert 'mcp_pool_max_connections{pool="read"} 2.0' in text
+
     text = generate_latest(metrics.registry).decode("utf-8")
-    assert 'mcp_pool_in_use{pool="read"} 1.0' in text
+    assert 'mcp_pool_in_use{pool="read"} 0.0' in text
 
 
 def test_request_logger_persists_and_queries_by_username(tmp_path):

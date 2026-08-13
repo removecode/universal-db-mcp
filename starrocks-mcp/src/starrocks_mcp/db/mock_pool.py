@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from .base import ConnectionPool, ExecResult
+from .base import ConnectionPool, ExecResult, PoolStats
 
 # ---------------------------------------------------------------------------
 # 构造的“数据库世界”：两个 catalog，一个是 StarRocks 内部表，一个是外部 Paimon catalog
@@ -120,6 +120,10 @@ class MockConnectionPool(ConnectionPool):
     def ping(self) -> None:
         # mock 模式没有真实网络连接，探测永远成功
         return None
+
+    def stats(self) -> PoolStats:
+        # mock 模式没有真实连接池，占用恒为 0
+        return PoolStats()
 
     def execute(self, sql: str) -> ExecResult:
         stripped = sql.strip().rstrip(";")

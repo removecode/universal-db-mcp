@@ -35,6 +35,11 @@ class AppState:
         self.settings = settings
         self.auth_provider: AuthProvider = YamlAuthProvider(settings.resolve_path(settings.auth.apikeys_file))
         self.executor = PooledExecutor(max_workers=settings.database.executor_max_workers)
+        # 健康检查独立一个线程池：和业务共用时，业务把线程占满会让探活一起失灵
+        self.health_executor = PooledExecutor(
+            max_workers=settings.database.health_executor_max_workers,
+            thread_name_prefix="db-health",
+        )
         self.metrics = Metrics()
         self.request_logger = RequestLogger(settings.resolve_path(settings.monitoring.audit_db_path))
 
@@ -48,19 +53,29 @@ class AppState:
             self.read_pool = MockConnectionPool(role="read")
             self.write_pool = MockConnectionPool(role="write")
         elif driver == "pymysql":
-            self._real_pools = PyMySQLReadWritePools(settings.database)
+            self._real_pools = PyMySQLReadWritePools(
+                settings.database,
+                socket_timeout=settings.effective_socket_timeout(),
+            )
             self.read_pool = self._real_pools.read_pool
             self.write_pool = self._real_pools.write_pool
         else:
             raise ValueError(f"未知的 database.driver: {driver!r}，目前支持 mock / pymysql")
 
+        self.metrics.bind_pool("read", self.read_pool)
+        self.metrics.bind_pool("write", self.write_pool)
+
     def pool_for(self, pool_name: str) -> ConnectionPool:
         return self.read_pool if pool_name == "read" else self.write_pool
 
     def close(self) -> None:
-        self.executor.shutdown()
+        # 顺序很关键：先关连接池（唤醒等待者、关掉空闲连接），再关线程池。
+        # 反过来的话，`shutdown` 会为了等那些卡住的线程而永远返回不了，
+        # 而唯一能唤醒它们的 pool.close() 恰恰排在后面，Ctrl-C 直接卡死。
         if self._real_pools is not None:
             self._real_pools.close()
+        self.health_executor.shutdown()
+        self.executor.shutdown()
 
 
 def _register_tools(mcp: FastMCP, state: AppState) -> None:
@@ -134,20 +149,27 @@ def _make_health_endpoint(state: AppState):
 
         - 进程正常且数据库可用：200，`status=ok`
         - mock 模式：200，`status=ok`，`mode=mock`（服务可用，但未连真实库）
+        - 库可达但连接池被占满：200，`status=degraded`。这里刻意不返回 503——
+          重启解决不了池满，只会打断正在跑的查询，让探针把进程杀掉纯属帮倒忙
         - 真实驱动连不上库：503，`status=unavailable`，并带上可读的错误原因
         """
         status = await check_connection_status(
             read_pool=state.read_pool,
             write_pool=state.write_pool,
-            executor=state.executor,
+            executor=state.health_executor,
             driver=state.settings.database.driver,
             host=None if state.settings.database.driver == "mock" else state.settings.database.host,
             port=None if state.settings.database.driver == "mock" else state.settings.database.port,
             timeout_seconds=3.0,
         )
-        payload = {"status": "ok" if status.connected else "unavailable", **status.to_dict()}
-        http_status = 200 if status.connected else 503
-        return JSONResponse(payload, status_code=http_status)
+        if not status.connected:
+            label = "unavailable"
+        elif status.degraded:
+            label = "degraded"
+        else:
+            label = "ok"
+        payload = {"status": label, **status.to_dict()}
+        return JSONResponse(payload, status_code=200 if status.connected else 503)
 
     return health_endpoint
 
@@ -190,7 +212,7 @@ def build_asgi_app(settings: Settings) -> tuple[ASGIApp, AppState]:
                 status = await check_connection_status(
                     read_pool=state.read_pool,
                     write_pool=state.write_pool,
-                    executor=state.executor,
+                    executor=state.health_executor,
                     driver=settings.database.driver,
                     host=None if settings.database.driver == "mock" else settings.database.host,
                     port=None if settings.database.driver == "mock" else settings.database.port,

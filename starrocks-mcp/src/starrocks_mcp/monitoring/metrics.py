@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from starlette.requests import Request
 from starlette.responses import Response
@@ -35,7 +37,19 @@ class Metrics:
         )
         self.pool_in_use = Gauge(
             "mcp_pool_in_use",
-            "当前连接池活跃使用计数（近似值，基于并发调用计数）",
+            "当前被借出的连接数（直接读连接池状态）",
+            ["pool"],
+            registry=self.registry,
+        )
+        self.pool_waiting = Gauge(
+            "mcp_pool_waiting",
+            "正在排队等待空闲连接的调用数",
+            ["pool"],
+            registry=self.registry,
+        )
+        self.pool_max_connections = Gauge(
+            "mcp_pool_max_connections",
+            "连接池并发上限",
             ["pool"],
             registry=self.registry,
         )
@@ -53,8 +67,16 @@ class Metrics:
         self.duration_seconds.labels(api_key_id=api_key_id, statement_type=statement_type).observe(duration_seconds)
         self.rows_returned.labels(api_key_id=api_key_id).observe(row_count)
 
-    def track_pool_usage(self, pool: str, delta: int) -> None:
-        self.pool_in_use.labels(pool=pool).inc(delta)
+    def bind_pool(self, name: str, pool: Any) -> None:
+        """让连接池指标直接反映池子的真实状态。
+
+        之前是在调用前后各 inc(±1)，而减 1 放在 `finally` 里：查询超时时计数会跟着
+        减掉，可那条连接其实还没归还。于是池子已经满了，监控上却显示接近 0——
+        恰好在故障时给出相反的结论。
+        """
+        self.pool_in_use.labels(pool=name).set_function(lambda: pool.stats().in_use)
+        self.pool_waiting.labels(pool=name).set_function(lambda: pool.stats().waiting)
+        self.pool_max_connections.labels(pool=name).set_function(lambda: pool.stats().max_connections)
 
     async def endpoint(self, request: Request) -> Response:  # noqa: ARG002 - Starlette 路由签名要求
         data = generate_latest(self.registry)
