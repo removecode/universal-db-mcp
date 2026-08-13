@@ -1,0 +1,9 @@
+# 生产运行时依赖（与 pyproject.toml [project.dependencies] 一致）
+mcp[cli]>=1.20.0
+pymysql>=1.1.0
+DBUtils>=3.1.0
+sqlparse>=0.5.0
+PyYAML>=6.0
+prometheus-client>=0.20.0
+uvicorn>=0.30.0
+starlette>=0.37.0

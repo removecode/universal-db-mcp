@@ -1,0 +1,22 @@
+# 直接依赖的版本锁定：这些是本地跑通全部测试的版本。
+#
+# requirements-prod.txt 里全是 `>=` 下界，没有上界。离线包每重打一次，pip 都会
+# 去拿当时的最新版——2026-07 打的包和今天打的包，依赖可能差出一个大版本。
+# 尤其是 mcp：当前最新已经是 2.0.0，而本项目验证过的是 1.28.x，
+# `mcp.server.fastmcp` 的 FastMCP / Context / sse_app() / streamable_http_app()
+# 都可能在大版本里变动。
+#
+# 生成可复现的依赖清单：
+#   uv pip compile requirements-prod.txt -c requirements-prod.constraints.txt \
+#       --python-platform x86_64-unknown-linux-gnu --python-version 3.12 \
+#       -o requirements-lock-linux-py312.txt
+#
+# 升级依赖时：先放开这里的版本、跑 pytest、确认通过后再更新本文件。
+mcp==1.28.1
+pymysql==1.2.0
+DBUtils==3.1.2
+sqlparse==0.5.5
+PyYAML==6.0.3
+prometheus-client==0.26.0
+uvicorn==0.51.0
+starlette==1.3.1
